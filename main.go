@@ -30,5 +30,6 @@ func main() {
 		Addr:    *addr,
 		Handler: &Handler{db, mux},
 	}
+	log.Print("Listening on tls")
 	log.Fatal(server.ListenAndServeTLS(*certFile, *keyFile))
 }
