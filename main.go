@@ -20,6 +20,7 @@ type Handler struct {
 }
 
 func main() {
+	log.Print("db")
 	mux := http.NewServeMux()
 	db, err := sql.Open("psql", *dsn)
 	if err != nil {
