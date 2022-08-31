@@ -1,0 +1,17 @@
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+jobs:
+  build:
+    strategy:
+      matrix:
+        combo:
+          - os: ubuntu-latest
+            name: lol
+          - os: macos-latest
+            name: lol
+    runs-on: "${{ matrix.combo.os }}"
+    steps:
+      - run: echo ${{ matrix.combo.name }}
