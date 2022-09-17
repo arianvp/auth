@@ -1,7 +1,6 @@
 {
   description = "auth";
-
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs , flake-utils }:
     let
       pkgs = nixpkgs.legacyPackages;
 
@@ -24,6 +23,10 @@
           pkgs = nixpkgs.legacyPackages.x86_64-linux;
           selfPackages = self.packages.x86_64-linux;
         };
+      };
+      hydraJobs = {
+        "aarch64-darwin/auth" = self.packages.aarch64-darwin.auth;
+        "x86_64-linux/auth" = self.packages.x86_64-linux.auth;
       };
     };
 }
