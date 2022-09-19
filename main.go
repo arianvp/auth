@@ -7,6 +7,10 @@ import (
 	"crypto/subtle"
 	"crypto/x509"
 	"log"
+	"math/big"
+	"os"
+	"os/exec"
+	"time"
 
 	"github.com/google/go-tpm-tools/client"
 	"github.com/google/go-tpm-tools/server"
@@ -15,6 +19,7 @@ import (
 )
 
 func main() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
 	// BEGIN SERVER
 	attestationRootKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -23,7 +28,12 @@ func main() {
 
 	}
 	attestationRootTemplate := &x509.Certificate{
-		IsCA: true,
+		SerialNumber:          big.NewInt(1),
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
 	}
 	attestationRoot, err := x509.CreateCertificate(rand.Reader, attestationRootTemplate, attestationRootTemplate, attestationRootKey.Public(), attestationRootKey)
 	if err != nil {
@@ -33,9 +43,19 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	rootCertPool := x509.NewCertPool()
+	rootCertPool.AddCert(attestationRootCert)
+
 	// END SERVER
 
 	// BEGIN CLIENT
+	if os.Getenv("CLOUD_SHELL") == "true" {
+		cmd := exec.Command("sudo", "chmod", "777", "/dev/tpmrm0")
+		if b, err := cmd.CombinedOutput(); err != nil {
+			log.Fatal(string(b))
+		}
+	}
+
 	tpm, err := tpm2.OpenTPM()
 	if err != nil {
 		log.Fatal(err)
@@ -50,29 +70,20 @@ func main() {
 
 	ekCert := ek.Cert()
 
-	ak, err := client.AttestationKeyECC(tpm)
+	ak, err := client.AttestationKeyRSA(tpm)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer ak.Close()
-
-	akCSRTemplate := &x509.CertificateRequest{}
-	akPrivateKey, err := ak.GetSigner()
-	if err != nil {
-		log.Fatal(err)
-	}
-	akCSRBytes, err := x509.CreateCertificateRequest(rand.Reader, akCSRTemplate, akPrivateKey)
-	if err != nil {
-		log.Fatal(err)
-	}
 	// END CLIENT
 
 	// BEGIN SERVER
 
-	// Check that th EK cert is trusted
-	_, err = ekCert.Verify(x509.VerifyOptions{})
-	if err != nil {
-		log.Fatal(err)
+	if ekCert != nil {
+		_, err = ekCert.Verify(x509.VerifyOptions{})
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	secret := make([]byte, 32)
@@ -89,7 +100,7 @@ func main() {
 	// END SERVER
 
 	// BEGIN CLIENT
-	decryptedSecret, err := tpm2.ActivateCredential(tpm, ek.Handle(), ak.Handle(), "", "", credBlob, encryptedSecret)
+	decryptedSecret, err := ak.ActivateCredential(tpm, ek, credBlob, encryptedSecret)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -98,16 +109,8 @@ func main() {
 	// BEGIN SERVER
 
 	// Check if the challenge is solved
-	if subtle.ConstantTimeCompare(secret, decryptedSecret) != 0 {
+	if subtle.ConstantTimeCompare(secret, decryptedSecret) != 1 {
 		log.Fatal("Secrets did not match")
-	}
-	// decode the CSR
-	akCSR, err := x509.ParseCertificateRequest(akCSRBytes)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if err := akCSR.CheckSignature(); err != nil {
-		log.Fatal(err)
 	}
 
 	// We know that the AK is backed by the EK and that the EK is trusted at
@@ -115,9 +118,14 @@ func main() {
 
 	// NOTE: should be populated with the same fields as set on the CSR template In
 	// our case it's empty...
-	akCertTemplate := &x509.Certificate{}
+	akCertTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(3),
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+	}
 
-	akCertBytes, err := x509.CreateCertificate(rand.Reader, akCertTemplate, attestationRootCert, akCSR.PublicKey, attestationRootKey)
+	akCertBytes, err := x509.CreateCertificate(rand.Reader, akCertTemplate, attestationRootCert, ak.PublicKey(), attestationRootKey)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -128,6 +136,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	if _, err := akCert.Verify(x509.VerifyOptions{
+		Roots:     rootCertPool,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsage(x509.ExtKeyUsageAny)},
+	}); err != nil {
+		log.Fatal(err)
+	}
+
 	ak.SetCert(akCert)
 
 	// we can now generate an attestation
