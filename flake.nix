@@ -7,7 +7,7 @@
 
       packages = { pkgs, selfPackages }: {
         default = selfPackages.auth;
-        auth = pkgs.buildGoModule {
+        auth = (pkgs.buildGoModule.override { go = pkgs.go_1_19; }) {
           name = "auth";
           src = ./.;
           vendorHash = null;
