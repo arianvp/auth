@@ -1,22 +1,6 @@
 package main
 
-import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/subtle"
-	"crypto/x509"
-	"log"
-	"math/big"
-	"os"
-	"os/exec"
-	"time"
-
-	"github.com/google/go-tpm-tools/client"
-	"github.com/google/go-tpm-tools/server"
-	"github.com/google/go-tpm/tpm2"
-	"github.com/google/go-tpm/tpm2/credactivation"
-)
+/*
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
@@ -171,3 +155,4 @@ func main() {
 	log.Print(machineState.String())
 	// END SERVER
 }
+*/

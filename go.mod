@@ -2,14 +2,15 @@ module github.com/arianvp/auth
 
 go 1.19
 
-// replace github.com/google/go-tpm-tools v0.3.9 => github.com/arianvp/go-tpm-tools v0.0.0-20220919170143-2cc85b1c4ce2
-replace github.com/google/go-tpm-tools v0.3.9 => ../go-tpm-tools
+// replace github.com/google/go-tpm-tools v0.3.9 => github.com/arianvp/go-tpm-tools v0.0.0-20220919170143-2cc85b1c4ce
+
+replace github.com/arianvp/webauthn-minimal => ../webauthn-minimal
 
 require (
 	github.com/alexedwards/scs/v2 v2.5.0
+	github.com/arianvp/webauthn-minimal v0.0.0-20221008140149-f220ede29ee4
 	github.com/duo-labs/webauthn v0.0.0-20220815211337-00c9fb5711f5
-	github.com/google/go-tpm v0.3.3
-	github.com/google/go-tpm-tools v0.3.9
+	github.com/fxamacker/cbor/v2 v2.4.0
 	github.com/google/uuid v1.3.0
 )
 
@@ -32,7 +33,6 @@ require (
 	github.com/envoyproxy/protoc-gen-validate v0.6.1 // indirect
 	github.com/form3tech-oss/jwt-go v3.2.3+incompatible // indirect
 	github.com/fullstorydev/grpcurl v1.8.2 // indirect
-	github.com/fxamacker/cbor/v2 v2.4.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v4 v4.1.0 // indirect
 	github.com/golang/glog v0.0.0-20210429001901-424d2337a529 // indirect
@@ -41,8 +41,7 @@ require (
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/btree v1.0.1 // indirect
 	github.com/google/certificate-transparency-go v1.1.2 // indirect
-	github.com/google/go-attestation v0.4.4-0.20220404204839-8820d49b18d9 // indirect
-	github.com/google/go-tspi v0.2.1-0.20190423175329-115dea689aad // indirect
+	github.com/google/go-cmp v0.5.7 // indirect
 	github.com/google/trillian v1.4.0 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0 // indirect

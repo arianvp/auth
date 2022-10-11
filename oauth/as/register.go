@@ -1,9 +1,8 @@
-package oauth
+package as
 
 import (
 	"context"
 	"crypto/ecdsa"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -14,9 +13,7 @@ import (
 
 	"github.com/alexedwards/scs/v2"
 	"github.com/arianvp/auth/jwt"
-	"github.com/duo-labs/webauthn/protocol"
-	"github.com/duo-labs/webauthn/protocol/webauthncbor"
-	"github.com/duo-labs/webauthn/protocol/webauthncose"
+	"github.com/arianvp/webauthn-minimal/webauthn"
 	"github.com/google/uuid"
 )
 
@@ -69,9 +66,13 @@ const (
 
 // A valid ClientDataJSON according to the Webauthn spec, that also contains ClientMetadata
 type ClientData struct {
-	protocol.CollectedClientData
+	Challenge string `json:"challenge"`
 	// If the attestation object has information about the client metadata it MUST validate this against the user-provided metadata.
 	ClientMetadata ClientMetadata `json:"client_metadata"`
+}
+
+type WebauthnAttestation struct {
+	Audience string `json:"aud"` // The audience of the attestation.
 }
 
 type Base64URLString string
@@ -95,17 +96,17 @@ type ClientRegistrationRequest struct {
 // but with an additional possibility to have a COSE Key inside
 type WebauthnConfirmation struct {
 	// COSE_Key as per https://www.rfc-editor.org/rfc/rfc8747.html
-	COSEKey *webauthncose.EC2PublicKeyData `json:"-" cbor:"1,keyasint,omitempty"`
+	COSEKey *webauthn.PublicKeyData `json:"-" cbor:"1,keyasint,omitempty"`
 
 	// a COSE_Key encoded as a bytestring
-	COSEKeyAsString Base64URLString `json:"ck,omitempty" cbor"-"`
+	COSEKeyAsString Base64URLString `json:"ck,omitempty" cbor:"-"`
 
 	// A reference to a credential.  client should have saved the corresponding credential id
-	CredentialId Base64URLString `json:"kid,omitempty",cbor:"3,keyasint,omitempty"`
+	CredentialId Base64URLString `json:"kid,omitempty" cbor:"3,keyasint,omitempty"`
 }
 
 // https://www.rfc-editor.org/rfc/rfc8747.html#section-3
-type WebauthnAttestationClaims struct {
+type WebauthnClaims struct {
 	Issuer       string               `json:"iss"` // MUST be equal to issuer id in the metadata endpoint
 	Audience     string               `json:"aud"` // MUST be equal to token_endpoint metadata endpoint
 	Subject      string               `json:"sub"` // MUST be equal to the client_id
@@ -117,7 +118,9 @@ type ClientInformationResponse struct {
 
 	// A Holder-of-Key assertion (RFC7521) binding the credential id to the client id
 	// MUST be signed by a key from jwks_uri
-	WebauthnAttestationToken string `json:"webauthn_attestation_token"`
+	// It's provided as a client_assertion for protected endpoints.  a DPoP header must
+	// be set containing a Webauthn Assertion that proofs possession of the keys
+	WebauthnPOPToken string `json:"webauthn_pop_token"`
 
 	// The Client metadata. This is either client-provided or populated from the
 	// attestation statement if possible.  For example. Apple's AppAttest
@@ -159,6 +162,16 @@ type ClientRegistrationEndpoint struct {
 	privateKey *ecdsa.PrivateKey
 }
 
+// Registers a Relying Party to the Authorisation Server.
+// The Relying Party provides a software_id that is common accross all instances of the Relying Party.
+// After proving cryptographically that the Relying Party is indeed an instance of the software (through means of attestation).
+// a client_id is minted to uniquely identiy the Relying Party and it's associated with the software_id.
+// The attestation can optionally contain Authenticator Data indicating what hardware bound key is used
+// later for Proof of Possesion style authentication. Not all Relying Parties support this.
+// TODO:
+// 1. Prove that the software_id is 'owned' by the registering client through means of attestation
+// 2. Associate the software_id to the client_id so we can verify later assertions as the signatures
+// will include the RPID
 func (endpoint *ClientRegistrationEndpoint) register(ctx context.Context, r *ClientRegistrationRequest) (*ClientInformationResponse, *ClientRegistrationErrorResponse) {
 	// if the request is empty, we see this as a sign that we need to issue an save a challenge
 	if r.SoftwareStatement == "" {
@@ -201,12 +214,10 @@ func (endpoint *ClientRegistrationEndpoint) register(ctx context.Context, r *Cli
 	}
 
 	challenge := endpoint.session.GetString(ctx, "challenge")
-
-	// HACK: nasty trick to make it match the RpId
-	if err := clientData.Verify(challenge, protocol.CreateCeremony, "https://"+clientData.ClientMetadata.SoftwareID); err != nil {
+	if clientData.Challenge != challenge {
 		return nil, &ClientRegistrationErrorResponse{
 			ErrorCode:        ClientRegistrationErrorInvalidSoftwareStatement,
-			ErrorDescription: err.Error(),
+			ErrorDescription: "challenge mismatch",
 		}
 	}
 
@@ -218,41 +229,38 @@ func (endpoint *ClientRegistrationEndpoint) register(ctx context.Context, r *Cli
 		}
 	}
 
-	var attestationObject protocol.AttestationObject
-	if err := webauthncbor.Unmarshal(attestationObjectBytes, &attestationObject); err != nil {
+	// TODO attestation should check challeng!
+	attestationObject, err := webauthn.ParseAndVerifyAttestationObject(attestationObjectBytes)
+	if err != nil {
 		return nil, &ClientRegistrationErrorResponse{
 			ErrorCode:        ClientRegistrationErrorInvalidSoftwareStatement,
 			ErrorDescription: err.Error(),
 		}
 	}
 
+	authData, err := webauthn.ParseAndVerifyAuthenticatorData(attestationObject.AuthenticatorData, clientData.ClientMetadata.SoftwareID, 0)
 	// TODO: Check that software_id is among a known software id
-
-	// HACK: This is just to trick webauthn library in handling attestations without UP
-	attestationObject.AuthData.Flags |= protocol.FlagUserPresent
-	// Ideally apple should allow you to configure the relying party id to be
-	// the server you send the attestation to. It doesn't do that;
-	// unfortunately.  This means attestation is currently vulnerable to
-	// rebinding attacks if an attacker can Man in the Middle the client.
-
-	clientDataHash := sha256.Sum256(clientDataJSON)
-	if err := attestationObject.Verify(clientData.ClientMetadata.SoftwareID, clientDataHash[:], false); err != nil {
+	if err != nil {
 		return nil, &ClientRegistrationErrorResponse{
-			ErrorCode:        ClientRegistrationErrorUnapprovedSoftwareStatement,
+			ErrorCode:        ClientRegistrationErrorInvalidSoftwareStatement,
 			ErrorDescription: err.Error(),
 		}
 	}
 
 	clientID := uuid.NewString()
 
-	webauthnClaims := &WebauthnAttestationClaims{
-		Issuer:       endpoint.issuer,
-		Audience:     endpoint.tokenEndpoint,
-		Subject:      clientID,
-		Confirmation: WebauthnConfirmation{},
+	webauthnClaims := &WebauthnClaims{
+		Issuer:   endpoint.issuer,
+		Audience: endpoint.tokenEndpoint,
+		Subject:  clientID,
+		Confirmation: WebauthnConfirmation{
+			// COSEKey:         &authData.CredentialPublicKey,
+			// COSEKeyAsString: "",
+			CredentialId: Base64URLString(authData.CredentialID),
+		},
 	}
 
-	webauthnAttestationToken, err := jwt.EncodeAndSign(webauthnClaims, endpoint.keyID, endpoint.privateKey)
+	popToken, err := jwt.EncodeAndSign(webauthnClaims, endpoint.keyID, endpoint.privateKey)
 	if err != nil {
 		return nil, &ClientRegistrationErrorResponse{
 			ErrorCode:        ClientRegistrationErrorUnapprovedSoftwareStatement,
@@ -261,9 +269,9 @@ func (endpoint *ClientRegistrationEndpoint) register(ctx context.Context, r *Cli
 	}
 
 	return &ClientInformationResponse{
-		ClientID:                 clientID,
-		ClientMetadata:           clientData.ClientMetadata,
-		WebauthnAttestationToken: webauthnAttestationToken,
+		ClientID:         clientID,
+		ClientMetadata:   clientData.ClientMetadata,
+		WebauthnPOPToken: popToken,
 	}, nil
 
 }

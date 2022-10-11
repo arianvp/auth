@@ -1,19 +1,17 @@
-package oauth
+package as
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
+	"crypto/ecdsa"
 
 	"github.com/alexedwards/scs/v2"
-	"github.com/arianvp/auth/jwt"
-	"github.com/duo-labs/webauthn/protocol"
 )
 
 type TokenEndpoint struct {
 	session       *scs.SessionManager
 	tokenEndpoint string
 	issuer        string
+	privateKey    *ecdsa.PrivateKey
 }
 
 type TokenRequest struct {
@@ -37,7 +35,7 @@ func (endpoint *TokenEndpoint) fetchClientMetadata(clientID string) *ClientMetad
 
 func (endpoint *TokenEndpoint) createToken(ctx context.Context, r *TokenRequest, webauthnAssertion string) (*TokenResponse, *TokenErrorResponse) {
 
-	var webauthnAttestationClaims WebauthnAttestationClaims
+	/*var webauthnAttestationClaims WebauthnAttestationClaims
 	if err := jwt.DecodeAndVerify(string(r.ClientAssertion), nil, &webauthnAttestationClaims); err != nil {
 		return nil, &TokenErrorResponse{}
 	}
@@ -47,8 +45,9 @@ func (endpoint *TokenEndpoint) createToken(ctx context.Context, r *TokenRequest,
 		return nil, &TokenErrorResponse{}
 	}
 
-	assertion, err := protocol.ParseCredentialRequestResponseBody(bytes.NewReader(assertionBytes))
-	if err != nil {
+	var assertion protocol.AuthenticatorAssertionResponse
+
+	if err := json.Unmarshal(assertionBytes, &assertion); err != nil {
 		return nil, &TokenErrorResponse{}
 	}
 
@@ -62,11 +61,12 @@ func (endpoint *TokenEndpoint) createToken(ctx context.Context, r *TokenRequest,
 
 	clientID := webauthnAttestationClaims.Subject
 
-	credential := webauthnAttestationClaims.Confirmation.PublicKeyCredential
+	credential := webauthnAttestationClaims.Confirmation.COSEKeyAsString
 
 	clientMetadata := endpoint.fetchClientMetadata(clientID)
 
 	challenge := endpoint.session.GetString(ctx, "challenge")
+
 	if err := assertion.Verify(challenge, clientMetadata.SoftwareID, "https://"+clientMetadata.SoftwareID, "", false, []byte(credential)); err != nil {
 		return nil, &TokenErrorResponse{}
 	}
@@ -98,5 +98,6 @@ func (endpoint *TokenEndpoint) createToken(ctx context.Context, r *TokenRequest,
 		IDToken:         idToken,
 		AccessTokenType: "Webauthn",
 		AccessToken:     accessToken,
-	}, nil
+	}, nil*/
+	panic("no")
 }

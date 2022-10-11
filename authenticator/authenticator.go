@@ -9,9 +9,8 @@ import (
 	"encoding/binary"
 	"errors"
 
-	"github.com/duo-labs/webauthn/protocol"
-	"github.com/duo-labs/webauthn/protocol/webauthncbor"
-	"github.com/duo-labs/webauthn/protocol/webauthncose"
+	"github.com/arianvp/webauthn-minimal/webauthn"
+	"github.com/fxamacker/cbor/v2"
 	"github.com/google/uuid"
 )
 
@@ -25,7 +24,7 @@ type PublicKeyCredentialSource struct {
 type Authenticator interface {
 	LookupCredentialSourcebyCredentialId(id []byte) *PublicKeyCredentialSource
 	MakeCredential(hash []byte, rpId string, userHandle string) ([]byte, error)
-	GetAssertion(hash []byte, rpId string, allowCredentialDescriptorList []protocol.CredentialDescriptor)
+	GetAssertion(hash []byte, rpId string, allowCredentialDescriptorList []webauthn.PublicKeyCredentialDescriptor)
 }
 
 // https://www.w3.org/TR/webauthn-2/#authenticator-credentials-map
@@ -58,7 +57,7 @@ func (authenticator *SimpleAuthenticator) LookupCredentialSourceByCredentialId(i
 // client.
 //
 // See https://www.w3.org/TR/webauthn-2/#sctn-op-make-cred for more information.
-func (authenticator *SimpleAuthenticator) MakeCredential(hash []byte, rpId string) ([]byte, error) {
+func (authenticator *SimpleAuthenticator) MakeCredential(hash []byte, rpId string) (credentialID []byte, attObjectBytes []byte, err error) {
 
 	// TODO: excludeCredentialDescriptorList ?
 
@@ -70,7 +69,7 @@ func (authenticator *SimpleAuthenticator) MakeCredential(hash []byte, rpId strin
 	// by this authenticator.
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	publicKey := privateKey.PublicKey
 
@@ -83,45 +82,43 @@ func (authenticator *SimpleAuthenticator) MakeCredential(hash []byte, rpId strin
 		RpId:       rpId,
 	}
 
-	credentialId, err := uuid.New().MarshalBinary()
+	credentialID, err = uuid.New().MarshalBinary()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	credentialSource.Id = credentialId
-	authenticator.credentialsMap[string(credentialId)] = credentialSource
+	credentialSource.Id = credentialID
+	authenticator.credentialsMap[string(credentialID)] = credentialSource
 
-	publicKeyData := webauthncose.EC2PublicKeyData{
-		PublicKeyData: webauthncose.PublicKeyData{
-			KeyType:   int64(webauthncose.EllipticKey),
-			Algorithm: int64(webauthncose.AlgES256),
-		},
-		Curve:  int64(webauthncose.P256),
-		XCoord: publicKey.X.Bytes(),
-		YCoord: publicKey.Y.Bytes(),
+	publicKeyData := webauthn.PublicKeyData{
+		KeyType:   webauthn.EC2,
+		Algorithm: webauthn.ES256,
+		Curve:     webauthn.P256,
+		XCoord:    publicKey.X.Bytes(),
+		YCoord:    publicKey.Y.Bytes(),
 	}
-	credentialPublicKey, err := webauthncbor.Marshal(publicKeyData)
+	credentialPublicKey, err := cbor.Marshal(publicKeyData)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var credentialIdLength uint16 = uint16(len(credentialId))
+	var credentialIdLength uint16 = uint16(len(credentialID))
 
 	rpIdHash := sha256.Sum256([]byte(rpId))
 	const signCount uint32 = 0
 	rawAuthData := []byte{}
 
 	rawAuthData = append(rawAuthData, rpIdHash[:]...)
-	rawAuthData = append(rawAuthData, byte(protocol.FlagAttestedCredentialData))
+	rawAuthData = append(rawAuthData, byte(webauthn.FlagAttestedCredentialData))
 	rawAuthData = binary.BigEndian.AppendUint32(rawAuthData, signCount)
 
 	rawAuthData = append(rawAuthData, authenticator.AAGUID...)
 	rawAuthData = binary.BigEndian.AppendUint16(rawAuthData, credentialIdLength)
-	rawAuthData = append(rawAuthData, credentialId...)
+	rawAuthData = append(rawAuthData, credentialID...)
 	rawAuthData = append(rawAuthData, credentialPublicKey...)
 
 	type packedStmt struct {
-		Algorithm        webauthncose.COSEAlgorithmIdentifier `cbor:"alg"`
-		Signature        []byte                               `cbor:"sig"`
-		CertificateChain [][]byte                             `cbor:"x5c"`
+		Algorithm        webauthn.COSEAlgorithmIdentifier `cbor:"alg"`
+		Signature        []byte                           `cbor:"sig"`
+		CertificateChain [][]byte                         `cbor:"x5c"`
 	}
 
 	type attestationObject struct {
@@ -137,22 +134,28 @@ func (authenticator *SimpleAuthenticator) MakeCredential(hash []byte, rpId strin
 		signingKey = privateKey
 	}
 
-	signature, err := signingKey.Sign(rand.Reader, append(rawAuthData, hash...), crypto.SHA256)
+	hash2 := sha256.Sum256(append(rawAuthData, hash...))
+
+	signature, err := signingKey.Sign(rand.Reader, hash2[:], crypto.SHA256)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	attObject := attestationObject{
 		AuthData: rawAuthData,
 		Format:   "packed",
 		AttStatement: packedStmt{
-			Algorithm:        webauthncose.AlgES256,
+			Algorithm:        webauthn.ES256,
 			Signature:        signature,
-			CertificateChain: authenticator.Certificates,
+			CertificateChain: nil,
 		},
 	}
+	attObjectBytes, err = cbor.Marshal(&attObject)
+	if err != nil {
+		return nil, nil, err
+	}
 
-	return webauthncbor.Marshal(&attObject)
+	return
 
 }
 
@@ -162,10 +165,10 @@ type AuthenticatorAssertionResponse struct {
 	Signature         []byte
 }
 
-func (authenticator *SimpleAuthenticator) GetAssertion(hash []byte, rpId string, allowCredentialDescriptorList []protocol.CredentialDescriptor, requireUserVerification, requireUserPresent bool) (*AuthenticatorAssertionResponse, error) {
+func (authenticator *SimpleAuthenticator) GetAssertion(hash []byte, rpId string, allowCredentialDescriptorList []webauthn.PublicKeyCredentialDescriptor, requireUserVerification, requireUserPresent bool) (*AuthenticatorAssertionResponse, error) {
 	var credentialSource *PublicKeyCredentialSource
 	for _, allowedCredential := range allowCredentialDescriptorList {
-		if credentialSource, ok := authenticator.LookupCredentialSourceByCredentialId(allowedCredential.CredentialID); ok && credentialSource.Type == string(allowedCredential.Type) {
+		if credentialSource, ok := authenticator.LookupCredentialSourceByCredentialId(allowedCredential.Id); ok && credentialSource.Type == string(allowedCredential.Type) {
 			break
 		}
 	}
@@ -179,10 +182,10 @@ func (authenticator *SimpleAuthenticator) GetAssertion(hash []byte, rpId string,
 
 	flags := byte(0)
 	if requireUserPresent {
-		flags = flags | byte(protocol.FlagUserPresent)
+		flags = flags | byte(webauthn.FlagUserPresent)
 	}
 	if requireUserVerification {
-		flags = flags | byte(protocol.FlagUserVerified)
+		flags = flags | byte(webauthn.FlagUserVerified)
 	}
 	rawAuthData = append(rawAuthData, rpIdHash[:]...)
 	rawAuthData = append(rawAuthData, flags)
