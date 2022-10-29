@@ -1,21 +1,6 @@
 package as
 
-import (
-	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/json"
-	"testing"
-
-	"github.com/alexedwards/scs/v2"
-	"github.com/arianvp/auth/authenticator"
-	"github.com/arianvp/webauthn-minimal/webauthn"
-	"github.com/duo-labs/webauthn/protocol"
-	"github.com/google/uuid"
-)
-
+/*
 func TestXxx(t *testing.T) {
 
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -117,3 +102,4 @@ func TestXxx(t *testing.T) {
 		ClientID:            result.ClientID,
 	}, "")
 }
+*/

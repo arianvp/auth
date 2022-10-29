@@ -4,23 +4,21 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"io"
 	"math/big"
 )
 
-type PublicKey struct {
+type EC2PublicKey struct {
 	Curve string `json:"crv"`
 	X     string `json:"x"`
 	Y     string `json:"y"`
 }
 
-type JWK struct {
-	KeyID   string `json:"kid"`
+type Key struct {
+	KeyID   string `json:"kid,omitempty"`
 	KeyType string `json:"kty"`
-	Use     string `json:"sig"`
-	PublicKey
+	Use     string `json:"use,omitempty"`
+	EC2PublicKey
 }
 
 func encodeCoord(keyBytes int, b *big.Int) string {
@@ -50,9 +48,7 @@ func curveByName(curveName string) (elliptic.Curve, error) {
 	}
 }
 
-func EncodePublicKey(w io.Writer, keyID string, pubKey ecdsa.PublicKey) error {
-
-	encoder := json.NewEncoder(w)
+func EncodePublicKey(keyID string, pubKey ecdsa.PublicKey) Key {
 
 	curveBits := pubKey.Curve.Params().BitSize
 	keyBytes := curveBits / 8
@@ -60,20 +56,19 @@ func EncodePublicKey(w io.Writer, keyID string, pubKey ecdsa.PublicKey) error {
 		keyBytes += 1
 	}
 
-	publicKeyJWK := &JWK{
+	return Key{
 		KeyID:   keyID,
 		KeyType: "EC",
 		Use:     "sig",
-		PublicKey: PublicKey{
+		EC2PublicKey: EC2PublicKey{
 			Curve: pubKey.Params().Name,
 			X:     encodeCoord(keyBytes, pubKey.X),
 			Y:     encodeCoord(keyBytes, pubKey.Y),
 		},
 	}
-	return encoder.Encode(publicKeyJWK)
 }
 
-func (jwk *JWK) GetPublicKey() (ecdsa.PublicKey, error) {
+func (jwk *Key) GetPublicKey() (ecdsa.PublicKey, error) {
 	curve, err := curveByName(jwk.Curve)
 	if err != nil {
 		return ecdsa.PublicKey{}, err
@@ -96,21 +91,4 @@ func (jwk *JWK) GetPublicKey() (ecdsa.PublicKey, error) {
 	}
 
 	return publicKey, nil
-}
-
-// Decodes a jwk and returns the kid and the public key
-func DecodePublicKey(jwk string) (string, *ecdsa.PublicKey, error) {
-
-	publicKeyJWK := &JWK{}
-
-	err := json.Unmarshal([]byte(jwk), publicKeyJWK)
-	if err != nil {
-		return "", ecdsa.PublicKey{}, err
-	}
-	publicKey, err := publicKeyJWK.GetPublicKey()
-	if err != nil {
-		return "", ecdsa.PublicKey{}, err
-	}
-	return publicKeyJWK.KeyID, publicKey, nil
-
 }

@@ -14,11 +14,50 @@ type TokenEndpoint struct {
 	privateKey    *ecdsa.PrivateKey
 }
 
-type TokenRequest struct {
-	ClientAssertionType string `json:"client_assertion_type"`
-	ClientAssertion     string `json:"client_assertion"`
-	ClientID            string `json:"client_id,omitempty"`
+type TokenRequest interface {
+	Type() string
 }
+
+type ClientAuthorization interface {
+	ClientID() string
+	Authorize() error
+}
+
+type ClientAssertion interface {
+	Type() string
+}
+
+type JWTBearerClientAssertion string
+
+func (JWTBearerClientAssertion) Type() string {
+	return "jwt-bearer"
+}
+
+type ClientAssertionAuthorization struct {
+	ClientAssertionType string          `json:"client_assertion_type"`
+	ClientAssertion     ClientAssertion `json:"client_assertion"`
+}
+
+type AuthorizationCodeGrantTokenRequest struct {
+	*ClientAssertionAuthorization
+	ClientID     string `json:"client_id,omitempty"`
+	Code         string `json:"code"`
+	CodeVerifier string `json:"code_verifier"`
+}
+
+// Type implements Grant
+func (*AuthorizationCodeGrantTokenRequest) Type() string { return "authorization_code" }
+
+var _ TokenRequest = &AuthorizationCodeGrantTokenRequest{}
+
+type ClientCredentialsGrantTokenRequest struct {
+	ClientAssertionAuthorization
+}
+
+// Type implements Grant
+func (*ClientCredentialsGrantTokenRequest) Type() string { return "client_credentials" }
+
+var _ TokenRequest = &ClientCredentialsGrantTokenRequest{}
 
 type TokenResponse struct {
 	IDToken         string `json:"id_token"`
@@ -33,7 +72,7 @@ func (endpoint *TokenEndpoint) fetchClientMetadata(clientID string) *ClientMetad
 	return nil
 }
 
-func (endpoint *TokenEndpoint) createToken(ctx context.Context, r *TokenRequest, webauthnAssertion string) (*TokenResponse, *TokenErrorResponse) {
+func (endpoint *TokenEndpoint) createToken(ctx context.Context, r TokenRequest, webauthnAssertion string) (*TokenResponse, *TokenErrorResponse) {
 
 	/*var webauthnAttestationClaims WebauthnAttestationClaims
 	if err := jwt.DecodeAndVerify(string(r.ClientAssertion), nil, &webauthnAttestationClaims); err != nil {

@@ -4,11 +4,10 @@ go 1.19
 
 // replace github.com/google/go-tpm-tools v0.3.9 => github.com/arianvp/go-tpm-tools v0.0.0-20220919170143-2cc85b1c4ce
 
-replace github.com/arianvp/webauthn-minimal => ../webauthn-minimal
-
 require (
 	github.com/alexedwards/scs/v2 v2.5.0
 	github.com/arianvp/webauthn-minimal v0.0.0-20221008140149-f220ede29ee4
+	github.com/cloudflare/cfssl v1.6.1
 	github.com/duo-labs/webauthn v0.0.0-20220815211337-00c9fb5711f5
 	github.com/fxamacker/cbor/v2 v2.4.0
 	github.com/google/uuid v1.3.0
@@ -22,7 +21,6 @@ require (
 	github.com/census-instrumentation/opencensus-proto v0.3.0 // indirect
 	github.com/cespare/xxhash v1.1.0 // indirect
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
-	github.com/cloudflare/cfssl v1.6.1 // indirect
 	github.com/cncf/udpa/go v0.0.0-20210322005330-6414d713912e // indirect
 	github.com/cncf/xds/go v0.0.0-20210312221358-fbca930ec8ed // indirect
 	github.com/coreos/go-semver v0.3.0 // indirect
@@ -53,7 +51,7 @@ require (
 	github.com/json-iterator/go v1.1.11 // indirect
 	github.com/mattn/go-runewidth v0.0.12 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
-	github.com/mitchellh/mapstructure v1.1.2 // indirect
+	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.1 // indirect
 	github.com/olekukonko/tablewriter v0.0.5 // indirect

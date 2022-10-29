@@ -12,8 +12,6 @@ import (
 	"strings"
 
 	"github.com/alexedwards/scs/v2"
-	"github.com/arianvp/auth/jwt"
-	"github.com/arianvp/webauthn-minimal/webauthn"
 	"github.com/google/uuid"
 )
 
@@ -96,13 +94,13 @@ type ClientRegistrationRequest struct {
 // but with an additional possibility to have a COSE Key inside
 type WebauthnConfirmation struct {
 	// COSE_Key as per https://www.rfc-editor.org/rfc/rfc8747.html
-	COSEKey *webauthn.PublicKeyData `json:"-" cbor:"1,keyasint,omitempty"`
+	// COSEKey *webauthn.PublicKeyData `json:"-" cbor:"1,keyasint,omitempty"`
 
 	// a COSE_Key encoded as a bytestring
 	COSEKeyAsString Base64URLString `json:"ck,omitempty" cbor:"-"`
 
 	// A reference to a credential.  client should have saved the corresponding credential id
-	CredentialId Base64URLString `json:"kid,omitempty" cbor:"3,keyasint,omitempty"`
+	CredentialId Base64URLString `json:"kid,omitempty"
 }
 
 // https://www.rfc-editor.org/rfc/rfc8747.html#section-3
@@ -221,16 +219,16 @@ func (endpoint *ClientRegistrationEndpoint) register(ctx context.Context, r *Cli
 		}
 	}
 
-	attestationObjectBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	/*attestationObjectBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
 		return nil, &ClientRegistrationErrorResponse{
 			ErrorCode:        ClientRegistrationErrorInvalidSoftwareStatement,
 			ErrorDescription: err.Error(),
 		}
-	}
+	}*/
 
 	// TODO attestation should check challeng!
-	attestationObject, err := webauthn.ParseAndVerifyAttestationObject(attestationObjectBytes)
+	/*attestationObject, err := webauthn.ParseAndVerifyAttestationObject(attestationObjectBytes)
 	if err != nil {
 		return nil, &ClientRegistrationErrorResponse{
 			ErrorCode:        ClientRegistrationErrorInvalidSoftwareStatement,
@@ -245,33 +243,33 @@ func (endpoint *ClientRegistrationEndpoint) register(ctx context.Context, r *Cli
 			ErrorCode:        ClientRegistrationErrorInvalidSoftwareStatement,
 			ErrorDescription: err.Error(),
 		}
-	}
+	}*/
 
 	clientID := uuid.NewString()
 
-	webauthnClaims := &WebauthnClaims{
-		Issuer:   endpoint.issuer,
-		Audience: endpoint.tokenEndpoint,
-		Subject:  clientID,
+	/*webauthnClaims := &WebauthnClaims{
+		Issuer:       endpoint.issuer,
+		Audience:     endpoint.tokenEndpoint,
+		Subject:      clientID,
 		Confirmation: WebauthnConfirmation{
 			// COSEKey:         &authData.CredentialPublicKey,
 			// COSEKeyAsString: "",
-			CredentialId: Base64URLString(authData.CredentialID),
+			// CredentialId: Base64URLString(authData.CredentialID),
 		},
-	}
+	}*/
 
-	popToken, err := jwt.EncodeAndSign(webauthnClaims, endpoint.keyID, endpoint.privateKey)
+	/*popToken, err := jwt.EncodeAndSign(webauthnClaims, endpoint.keyID, endpoint.privateKey)
 	if err != nil {
 		return nil, &ClientRegistrationErrorResponse{
 			ErrorCode:        ClientRegistrationErrorUnapprovedSoftwareStatement,
 			ErrorDescription: err.Error(),
 		}
-	}
+	}*/
 
 	return &ClientInformationResponse{
 		ClientID:         clientID,
 		ClientMetadata:   clientData.ClientMetadata,
-		WebauthnPOPToken: popToken,
+		WebauthnPOPToken: "",
 	}, nil
 
 }
