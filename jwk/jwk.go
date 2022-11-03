@@ -3,7 +3,9 @@ package jwk
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"math/big"
 )
@@ -48,16 +50,33 @@ func curveByName(curveName string) (elliptic.Curve, error) {
 	}
 }
 
-func EncodePublicKey(keyID string, pubKey ecdsa.PublicKey) Key {
+func (k *Key) Thumbprint() string {
+
+	k2 := Key{
+		KeyType:      k.KeyType,
+		EC2PublicKey: k.EC2PublicKey,
+	}
+
+	bytes, err := json.Marshal(&k2)
+	if err != nil {
+		panic(err)
+	}
+	thumbprint := sha256.Sum256(bytes)
+	return base64.RawURLEncoding.EncodeToString(thumbprint[:])
+}
+
+func (k *Key) ThumbprintURI() string {
+	return fmt.Sprintf("urn:ietf:params:oauth:jwk-thumbprint:%s", k.Thumbprint())
+}
+
+func EncodePublicKey(pubKey ecdsa.PublicKey) Key {
 
 	curveBits := pubKey.Curve.Params().BitSize
 	keyBytes := curveBits / 8
 	if curveBits%8 > 0 {
 		keyBytes += 1
 	}
-
-	return Key{
-		KeyID:   keyID,
+	key := Key{
 		KeyType: "EC",
 		Use:     "sig",
 		EC2PublicKey: EC2PublicKey{
@@ -66,6 +85,8 @@ func EncodePublicKey(keyID string, pubKey ecdsa.PublicKey) Key {
 			Y:     encodeCoord(keyBytes, pubKey.Y),
 		},
 	}
+	key.KeyID = key.Thumbprint()
+	return key
 }
 
 func (jwk *Key) GetPublicKey() (ecdsa.PublicKey, error) {

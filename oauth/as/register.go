@@ -1,6 +1,7 @@
 package as
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"encoding/base64"
@@ -10,15 +11,20 @@ import (
 	"math/rand"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/alexedwards/scs/v2"
+	"github.com/arianvp/auth/jwt"
+	"github.com/arianvp/webauthn-minimal/webauthn"
 	"github.com/google/uuid"
 )
 
 type TokenEndpointAuthMethod string
 
 const (
-	TokenEndpointAuthMethodPrivateKeyWebauthn TokenEndpointAuthMethod = "private_key_webauthn"
+	TokenEndpointAuthMethodPrivateKeyWebauthn      TokenEndpointAuthMethod = "private_key_webauthn"
+	TokenEndpointAuthMethodSelfSignedTlsClientAuth TokenEndpointAuthMethod = "self_signed_tls_client_auth"
+	TokenEndpointAuthMethodNone                    TokenEndpointAuthMethod = "none"
 )
 
 type GrantType string
@@ -47,18 +53,17 @@ type ClientMetadata struct {
 	Contacts                []string                `json:"contacts,omitempty"`
 	TOSURI                  string                  `json:"tos_uri,omitempty"`
 	PolicyURI               string                  `json:"policy_uri,omitempty"`
-	// Unused when using webauthn. So Ignore
-	// JWKSURI                 string                  `json:"jwks_uri,omitempty"`
-	// JWKS                    string                  `json:"jwks,omitempty"`
-	SoftwareID      string `json:"software_id,omitempty"`
-	SoftwareVersion string `json:"software_version,omitempty"`
+	JWKSURI                 string                  `json:"jwks_uri,omitempty"`
+	JWKS                    string                  `json:"jwks,omitempty"`
+	SoftwareID              string                  `json:"software_id,omitempty"`
+	SoftwareVersion         string                  `json:"software_version,omitempty"`
 }
 
 type SoftwareStatementType string
 
 // TODO: Formalize these names
 const (
-	// SoftwareStatementTypeJWT                 SoftwareStatementType = "jwt"
+	SoftwareStatementTypeJWT                 SoftwareStatementType = "jwt"
 	SoftwareStatementTypeWebauthnAttestation SoftwareStatementType = "webauthn-attestation"
 )
 
@@ -69,10 +74,6 @@ type ClientData struct {
 	ClientMetadata ClientMetadata `json:"client_metadata"`
 }
 
-type WebauthnAttestation struct {
-	Audience string `json:"aud"` // The audience of the attestation.
-}
-
 type Base64URLString string
 
 // Corresponds to an AuthenticatorAttestationResponse from Webauthn https://www.w3.org/TR/webauthn-2/#iface-authenticatorattestationresponse
@@ -81,7 +82,7 @@ type AuthenticatorAttestationResponse struct {
 	AttestationObject Base64URLString `json:"attestationObject"` // base64url-encoded AttestationObject
 }
 type ClientRegistrationRequest struct {
-	*ClientMetadata // Unsigned client metadata MAY be provided.  Client metadata in the software statement MUST always have priority.
+	ClientMetadata // Unsigned client metadata MAY be provided.  Client metadata in the software statement MUST always have priority.
 
 	// Defaults to "jwt" when omitted
 	SoftwareStatementType SoftwareStatementType `json:"software_statement_type,omitempty"`
@@ -97,18 +98,10 @@ type WebauthnConfirmation struct {
 	// COSEKey *webauthn.PublicKeyData `json:"-" cbor:"1,keyasint,omitempty"`
 
 	// a COSE_Key encoded as a bytestring
-	COSEKeyAsString Base64URLString `json:"ck,omitempty" cbor:"-"`
+	COSEKeyAsString Base64URLString `json:"cwk,omitempty" cbor:"-"`
 
 	// A reference to a credential.  client should have saved the corresponding credential id
-	CredentialId Base64URLString `json:"kid,omitempty"
-}
-
-// https://www.rfc-editor.org/rfc/rfc8747.html#section-3
-type WebauthnClaims struct {
-	Issuer       string               `json:"iss"` // MUST be equal to issuer id in the metadata endpoint
-	Audience     string               `json:"aud"` // MUST be equal to token_endpoint metadata endpoint
-	Subject      string               `json:"sub"` // MUST be equal to the client_id
-	Confirmation WebauthnConfirmation `json:"cnf"`
+	CredentialId string `json:"kid,omitempty"`
 }
 
 type ClientInformationResponse struct {
@@ -171,6 +164,27 @@ type ClientRegistrationEndpoint struct {
 // 2. Associate the software_id to the client_id so we can verify later assertions as the signatures
 // will include the RPID
 func (endpoint *ClientRegistrationEndpoint) register(ctx context.Context, r *ClientRegistrationRequest) (*ClientInformationResponse, *ClientRegistrationErrorResponse) {
+
+	clientID := uuid.NewString()
+
+	switch r.TokenEndpointAuthMethod {
+	case TokenEndpointAuthMethodNone:
+		return &ClientInformationResponse{
+			ClientID:         clientID,
+			WebauthnPOPToken: "",
+			ClientMetadata:   r.ClientMetadata}, nil
+	case TokenEndpointAuthMethodPrivateKeyWebauthn:
+		privateKeyWebauthn(endpoint, ctx, r)
+
+	case TokenEndpointAuthMethodSelfSignedTlsClientAuth:
+	}
+
+	return nil, nil
+
+}
+
+func privateKeyWebauthn(endpoint *ClientRegistrationEndpoint, ctx context.Context, r *ClientRegistrationRequest) (any, error) {
+
 	// if the request is empty, we see this as a sign that we need to issue an save a challenge
 	if r.SoftwareStatement == "" {
 		return nil, &ClientRegistrationErrorResponse{
@@ -219,16 +233,7 @@ func (endpoint *ClientRegistrationEndpoint) register(ctx context.Context, r *Cli
 		}
 	}
 
-	/*attestationObjectBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return nil, &ClientRegistrationErrorResponse{
-			ErrorCode:        ClientRegistrationErrorInvalidSoftwareStatement,
-			ErrorDescription: err.Error(),
-		}
-	}*/
-
-	// TODO attestation should check challeng!
-	/*attestationObject, err := webauthn.ParseAndVerifyAttestationObject(attestationObjectBytes)
+	attestationObjectBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
 		return nil, &ClientRegistrationErrorResponse{
 			ErrorCode:        ClientRegistrationErrorInvalidSoftwareStatement,
@@ -236,42 +241,47 @@ func (endpoint *ClientRegistrationEndpoint) register(ctx context.Context, r *Cli
 		}
 	}
 
-	authData, err := webauthn.ParseAndVerifyAuthenticatorData(attestationObject.AuthenticatorData, clientData.ClientMetadata.SoftwareID, 0)
+	// TODO attestation should check challeng!
+	attestationObject, err := webauthn.ParseAndVerifyAttestationObject(attestationObjectBytes)
+	if err != nil {
+		return nil, &ClientRegistrationErrorResponse{
+			ErrorCode:        ClientRegistrationErrorInvalidSoftwareStatement,
+			ErrorDescription: err.Error(),
+		}
+	}
+
+	authData, err := webauthn.ParseAndVerifyAuthenticatorData(bytes.NewReader(attestationObject.AuthenticatorData), clientData.ClientMetadata.SoftwareID, 0)
 	// TODO: Check that software_id is among a known software id
 	if err != nil {
 		return nil, &ClientRegistrationErrorResponse{
 			ErrorCode:        ClientRegistrationErrorInvalidSoftwareStatement,
 			ErrorDescription: err.Error(),
 		}
-	}*/
+	}
 
-	clientID := uuid.NewString()
+	iat := time.Now()
 
-	/*webauthnClaims := &WebauthnClaims{
+	jti := uuid.NewString()
+
+	webauthnClaims := &jwt.JWT[jwt.WebauthnConfirmation]{
 		Issuer:       endpoint.issuer,
-		Audience:     endpoint.tokenEndpoint,
 		Subject:      clientID,
-		Confirmation: WebauthnConfirmation{
-			// COSEKey:         &authData.CredentialPublicKey,
-			// COSEKeyAsString: "",
-			// CredentialId: Base64URLString(authData.CredentialID),
-		},
-	}*/
+		Audience:     []string{endpoint.tokenEndpoint},
+		Expiration:   time.Time{},
+		NotBefore:    iat,
+		IssuedAt:     iat,
+		JwtID:        jti,
+		Confirmation: jwt.WebauthnConfirmation{},
+	}
 
-	/*popToken, err := jwt.EncodeAndSign(webauthnClaims, endpoint.keyID, endpoint.privateKey)
+	popToken, err := jwt.EncodeAndSign(webauthnClaims, endpoint.keyID, endpoint.privateKey)
 	if err != nil {
 		return nil, &ClientRegistrationErrorResponse{
 			ErrorCode:        ClientRegistrationErrorUnapprovedSoftwareStatement,
 			ErrorDescription: err.Error(),
 		}
-	}*/
-
-	return &ClientInformationResponse{
-		ClientID:         clientID,
-		ClientMetadata:   clientData.ClientMetadata,
-		WebauthnPOPToken: "",
-	}, nil
-
+	}
+	return nil, nil
 }
 
 func (endpoint *ClientRegistrationEndpoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {

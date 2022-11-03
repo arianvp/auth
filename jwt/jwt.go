@@ -1,18 +1,14 @@
 package jwt
 
 import (
-	"bytes"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
-	"net/http"
 	"strings"
 	"time"
 
@@ -63,64 +59,44 @@ type Confirmer[T any] interface {
 // Confirmation describes how the presenter of the JWT posesses a particular
 // proof-of-ossession key and how the recipient can cryptographically confirm
 // proof of possession of the key by the presenter.
-type KeyIDConfirmation struct {
+type KeyReferenceConfirmation struct {
 	KeyReference
 }
+
+type keyReferenceConfirmer struct {
+}
+
+// Confirm implements Confirmer
+func (*keyReferenceConfirmer) Confirm(cnf *KeyReferenceConfirmation) error {
+	panic("unimplemented")
+}
+
+var _ Confirmer[KeyReferenceConfirmation] = &keyReferenceConfirmer{}
 
 type KeyConfirmation struct {
 	Key *jwk.Key `json:"jwk"` // https://www.rfc-editor.org/rfc/rfc7800.html
 }
 
-type KeyThumbprintConfirmation struct {
-	KeyThumbprint []byte `json:"jkt"` // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-dpop
-}
-
-type dPoPConfirmer struct {
+type keyConfirmer struct {
+	jws string
 }
 
 // Confirm implements Confirmer
-func (*dPoPConfirmer) Confirm(key *KeyThumbprintConfirmation) error {
+func (*keyConfirmer) Confirm(cnf *KeyConfirmation) error {
+	return nil
+}
+
+var _ Confirmer[KeyConfirmation] = &keyConfirmer{}
+
+type WebauthnConfirmation struct{}
+type webauthnConfirmer struct{}
+
+// Confirm implements Confirmer
+func (*webauthnConfirmer) Confirm(cnf *WebauthnConfirmation) error {
 	panic("unimplemented")
 }
 
-func NewDPoPConfirmer() Confirmer[KeyThumbprintConfirmation] {
-	return &dPoPConfirmer{}
-}
-
-type CertificateThumbprintConfirmation struct {
-	CertificateThumbprint []byte `json:"x5t#S256"` // https://www.rfc-editor.org/rfc/rfc8705#name-jwt-certificate-thumbprint-
-}
-
-type certificateThumbprintConfirmer struct {
-	peer *x509.Certificate // If set, Peer is used for confirmation
-}
-
-func NewCertificateThumbprintConfirmerFromRequest(req *http.Request) (Confirmer[CertificateThumbprintConfirmation], error) {
-	if req.TLS == nil {
-		return nil, fmt.Errorf("http request was not performed with TLS")
-	}
-	return NewCertificateThumbprintConfirmerFromTLS(req.TLS)
-}
-
-func NewCertificateThumbprintConfirmerFromTLS(tls *tls.ConnectionState) (Confirmer[CertificateThumbprintConfirmation], error) {
-	if len(tls.PeerCertificates) == 0 {
-		return nil, fmt.Errorf("no peer certificate")
-	}
-	return NewCertificateThumbprintConfirmer(tls.PeerCertificates[0]), nil
-}
-
-func NewCertificateThumbprintConfirmer(peer *x509.Certificate) Confirmer[CertificateThumbprintConfirmation] {
-	return &certificateThumbprintConfirmer{peer}
-}
-
-// Confirm implements Confirmer
-func (confirmer *certificateThumbprintConfirmer) Confirm(cnf *CertificateThumbprintConfirmation) error {
-	x5t := sha256.Sum256(confirmer.peer.Raw)
-	if !bytes.Equal(cnf.CertificateThumbprint, x5t[:]) {
-		return fmt.Errorf("cnf: certificate thumbprints did not match")
-	}
-	return nil
-}
+var _ Confirmer[WebauthnConfirmation] = &webauthnConfirmer{}
 
 type Validator[T any] interface {
 	Validate(*T) error
