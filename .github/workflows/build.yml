@@ -3,15 +3,15 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  merge_group:
+     branches: [main]
+  
 jobs:
   build:
     strategy:
       matrix:
         combo:
-          - os: ubuntu-latest
-            name: lol
-          - os: macos-latest
-            name: lol
-    runs-on: "${{ matrix.combo.os }}"
+          - ubuntu-latest
+    runs-on: "${{ matrix.combo }}"
     steps:
-      - run: echo ${{ matrix.combo.name }}
+      - run: echo hey
