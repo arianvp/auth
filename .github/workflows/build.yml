@@ -14,4 +14,4 @@ jobs:
           - ubuntu-latest
     runs-on: "${{ matrix.combo }}"
     steps:
-      - run: sleep 121
+      - run: sleep 122
