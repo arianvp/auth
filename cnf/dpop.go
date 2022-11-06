@@ -1,4 +1,4 @@
-package jwt
+package cnf
 
 type KeyThumbprintConfirmation struct {
 	KeyThumbprint []byte `json:"jkt"` // https://datatracker.ietf.org/doc/html/draft-ietf-oauth-dpop

@@ -21,13 +21,12 @@ func TestJWTWithKeyCnf(t *testing.T) {
 		NotBefore:  time.Time{},
 		IssuedAt:   time.Time{},
 		JwtID:      "abc",
-		Confirmation: &KeyConfirmation{
-			Key: jwk.EncodePublicKey("456", subjectKey.PublicKey),
+		Confirmation: KeyConfirmation{
+			Key: jwk.EncodePublicKey(subjectKey.PublicKey),
 		},
 	}
 	encoded, err := EncodeAndSign(&jwt, "123", issuerKey)
 	if err != nil {
 		t.Error(err)
 	}
-
 }

@@ -1,4 +1,4 @@
-package jwt
+package cnf
 
 import (
 	"bytes"

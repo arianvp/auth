@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arianvp/auth/cnf"
 	"github.com/arianvp/auth/jwk"
 )
 
@@ -47,57 +48,6 @@ func (l *StringList) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-type KeyReference struct {
-	KeyID  string `json:"kid"`           // https://www.rfc-editor.org/rfc/rfc7800.html
-	KeyURL string `json:"jku,omitempty"` // https://www.rfc-editor.org/rfc/rfc7800.html
-
-}
-type Confirmer[T any] interface {
-	Confirm(*T) error
-}
-
-// Confirmation describes how the presenter of the JWT posesses a particular
-// proof-of-ossession key and how the recipient can cryptographically confirm
-// proof of possession of the key by the presenter.
-type KeyReferenceConfirmation struct {
-	KeyReference
-}
-
-type keyReferenceConfirmer struct {
-}
-
-// Confirm implements Confirmer
-func (*keyReferenceConfirmer) Confirm(cnf *KeyReferenceConfirmation) error {
-	panic("unimplemented")
-}
-
-var _ Confirmer[KeyReferenceConfirmation] = &keyReferenceConfirmer{}
-
-type KeyConfirmation struct {
-	Key *jwk.Key `json:"jwk"` // https://www.rfc-editor.org/rfc/rfc7800.html
-}
-
-type keyConfirmer struct {
-	jws string
-}
-
-// Confirm implements Confirmer
-func (*keyConfirmer) Confirm(cnf *KeyConfirmation) error {
-	return nil
-}
-
-var _ Confirmer[KeyConfirmation] = &keyConfirmer{}
-
-type WebauthnConfirmation struct{}
-type webauthnConfirmer struct{}
-
-// Confirm implements Confirmer
-func (*webauthnConfirmer) Confirm(cnf *WebauthnConfirmation) error {
-	panic("unimplemented")
-}
-
-var _ Confirmer[WebauthnConfirmation] = &webauthnConfirmer{}
-
 type Validator[T any] interface {
 	Validate(*T) error
 }
@@ -108,7 +58,7 @@ type JWTValidator[T any] struct {
 	Audience             string
 	CheckJwtIDRevocation func(jti string) error
 	Now                  func() time.Time
-	Confirmer            Confirmer[T]
+	Confirmer            cnf.Confirmer[T]
 }
 
 var _ Validator[JWT[any]] = &JWTValidator[any]{}
@@ -159,10 +109,6 @@ func (v *JWTValidator[T]) Validate(t *JWT[T]) error {
 		return fmt.Errorf("now is after exp: %v", t.Expiration)
 	}
 	return nil
-}
-
-var _ JWTValidator[CertificateThumbprintConfirmation] = JWTValidator[CertificateThumbprintConfirmation]{
-	Confirmer: NewCertificateThumbprintConfirmer(nil),
 }
 
 type JWT[Confirmation any] struct {
