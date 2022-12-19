@@ -10,7 +10,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"sync"
 	"time"
 
 	"github.com/arianvp/auth/jwt"
@@ -72,30 +71,6 @@ var (
 	ErrUnsupportedGrantType = &TokenError{Name: "unsupported_grant_type", Description: "The authorization grant type is not supported by the authorization server."}
 	ErrInvalidScope         = &TokenError{Name: "invalid_scope", Description: "The requested scope is invalid, unknown, malformed, or exceeds the scope granted by the resource owner."}
 )
-
-type state struct {
-	redirectURI   string
-	codeChallenge string
-}
-
-type codeCache struct {
-	codes map[string]*state
-	lock  sync.Mutex
-}
-
-func (c *codeCache) add(code string, state *state) {
-	c.lock.Lock()
-	c.codes[code] = state
-	c.lock.Unlock()
-}
-
-func (c *codeCache) del(code string) *state {
-	c.lock.Lock()
-	state := c.codes[code]
-	delete(c.codes, code)
-	c.lock.Unlock()
-	return state
-}
 
 type TokenResource struct {
 	codeCache    *codeCache
