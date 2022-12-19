@@ -8,14 +8,6 @@ import (
 	"encoding/json"
 )
 
-type Confirmation struct {
-	KeyID string `json:"kid"`
-}
-
-func (c *Confirmation) ConfirmJWS(jws string) error {
-	return nil
-}
-
 type Token interface {
 	Type() string
 }
