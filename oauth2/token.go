@@ -74,9 +74,9 @@ var (
 
 type TokenResource struct {
 	codeCache    *codeCache
-	privateKey   crypto.Signer
-	privateKeyId string
-	origin       string
+	PrivateKey   crypto.Signer
+	PrivateKeyID string
+	Origin       string
 }
 
 type TokenRequest struct {
@@ -149,15 +149,15 @@ func (t *TokenResource) handleAuthorizationCode(req TokenRequest) (*TokenRespons
 	accessTokenEpiresIn := now.Add(10 * time.Minute)
 
 	at := &AccessToken{
-		Issuer:     t.origin,
+		Issuer:     t.Origin,
 		Subject:    subject,
-		Audience:   []string{t.origin}, // TODO: Should match the audience of the scope, _or_ the `resource` parameter
+		Audience:   []string{t.Origin}, // TODO: Should match the audience of the scope, _or_ the `resource` parameter
 		Expiration: accessTokenEpiresIn.Unix(),
 		IssuedAt:   now.Unix(),
 		JWTID:      jti,
 	}
 
-	accessToken, err := jwt.EncodeAndSign(at, t.privateKeyId, t.privateKey)
+	accessToken, err := jwt.EncodeAndSign(at, t.PrivateKeyID, t.PrivateKey)
 	if err != nil {
 		panic(err)
 	}
